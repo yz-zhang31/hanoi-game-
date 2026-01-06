@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>汉诺塔递归可视化教学 - 全平台通用版</title>
+    <style>
+        :root {
+            --primary-color: #2c3e50;
+            --accent-color: #3498db;
+            --highlight-color: #e74c3c;
+            --sub-problem-color: #f1c40f;
+            --bg-color: #f4f6f7;
+            --panel-bg: #ffffff;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            margin: 0;
+            display: flex;
+            height: 100vh;
+            background-color: var(--bg-color);
+            overflow: hidden;
+            touch-action: manipulation;
+        }
+
+        /* --- 响应式布局控制 --- */
+        #main-container {
+            display: flex;
+            width: 100%;
+            height: 100%;
+            flex-direction: row; /* 默认 PC 左右布局 */
+        }
+
+        /* --- 侧边/底部控制面板 --- */
+        #control-panel {
+            width: 350px;
+            background: var(--panel-bg);
+            padding: 20px;
+            box-shadow: 2px 0 10px rgba(0,0,0,0.1);
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            z-index: 10;
+            overflow-y: auto;
+        }
+
+        /* --- 右侧/顶部游戏区域 --- */
+        #game-area {
+            flex: 1;
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: flex-end;
+            padding-bottom: 60px;
+            background: #fff;
+            user-select: none;
+        }
+
+        /* --- 移动端适配 (断点: 768px) --- */
+        @media (max-width: 768px) {
+            #main-container { flex-direction: column; }
+            #control-panel {
+                width: 100%;
+                height: 45vh;
+                order: 2; /* 面板在下 */
+                border-top-left-radius: 20px;
+                border-top-right-radius: 20px;
+                box-shadow: 0 -5px 15px rgba(0,0,0,0.1);
+                padding: 15px;
+            }
+            #game-area {
+                height: 55vh;
+                order: 1; /* 游戏在上 */
+            }
+            .pillar-container { margin: 0 5px !important; }
+        }
+
+        /* 游戏元素样式 */
+        .base { position: absolute; bottom: 55px; width: 90%; height: 10px; background: #7f8c8d; border-radius: 5px; }
+        .pillar-container { flex: 1; height: 60%; max-width: 200px; position: relative; margin: 0 15px; display: flex; justify-content: center; }
+        .pillar { width: 8px; height: 100%; background: #bdc3c7; border-radius: 4px 4px 0 0; }
+        .pillar-label { position: absolute; bottom: -35px; font-weight: bold; font-size: 0.9rem; color: var(--primary-color); }
+
+        .disk {
+            height: 24px; position: absolute; border-radius: 12px; display: flex;
+            justify-content: center; align-items: center; color: white; font-size: 11px;
+            font-weight: bold; box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            transition: bottom 0.3s ease, left 0.3s ease; z-index: 10; cursor: grab;
+        }
+        .disk.dragging { opacity: 0.8; cursor: grabbing; transition: none !important; z-index: 100; transform: scale(1.05); }
+        .disk.highlight-move { border: 2px solid #fff; box-shadow: 0 0 12px var(--highlight-color); }
+        .disk.highlight-subgroup { opacity: 0.6; border: 2px dashed var(--sub-problem-color); }
+
+        /* UI 组件 */
+        .mode-switch { display: flex; border: 1px solid var(--accent-color); border-radius: 8px; overflow: hidden; }
+        .mode-btn { flex: 1; padding: 10px; text-align: center; cursor: pointer; background: #fff; color: var(--accent-color); transition: 0.3s; }
+        .mode-btn.active { background: var(--accent-color); color: #fff; }
+
+        .control-group { background: #f9f9f9; padding: 12px; border-radius: 10px; border: 1px solid #eee; }
+        .input-row { display: flex; align-items: center; gap: 10px; margin: 8px 0; font-size: 0.9rem; }
+        input[type="range"] { flex: 1; }
+
+        button {
+            padding: 10px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer;
+            background: var(--primary-color); color: white; transition: 0.2s;
+        }
+        .btn-row { display: flex; gap: 8px; }
+        .btn-green { background: #27ae60; flex: 2; }
+        .btn-red { background: #e74c3c; flex: 1; }
+
+        .status-box { padding: 10px; background: #e8f6f3; border-left: 4px solid #1abc9c; font-size: 0.85rem; margin-bottom: 10px; }
+        .code-panel { font-family: monospace; background: #2c3e50; color: #ecf0f1; padding: 10px; border-radius: 4px; font-size: 0.75rem; }
+        #call-stack { list-style: none; padding: 0; border: 1px solid #ddd; border-radius: 4px; max-height: 120px; overflow-y: auto; background: #fff; }
+        .stack-frame { padding: 5px 10px; border-bottom: 1px solid #eee; font-size: 0.8rem; display: flex; justify-content: space-between; }
+        .stack-frame.active { background: #d6eaf8; font-weight: bold; }
+
+        .stats-display { position: absolute; top: 15px; width: 100%; display: flex; justify-content: space-around; font-weight: bold; color: var(--primary-color); }
+
+        /* 游戏指引样式 */
+        .guide-box {
+            margin-top: 15px;
+            padding: 12px;
+            background: #fffbe6;
+            border: 1px solid #ffe58f;
+            border-radius: 8px;
+        }
+        .guide-box h4 { margin: 0 0 8px 0; color: #856404; font-size: 0.9rem; }
+        .guide-box ul { margin: 0; padding-left: 18px; font-size: 0.8rem; color: #666; line-height: 1.6; }
+
+        /* 弹窗 */
+        .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: none; justify-content: center; align-items: center; z-index: 2000; }
+        .modal-content { background: white; padding: 25px; border-radius: 15px; text-align: center; width: 85%; max-width: 320px; }
+    </style>
+</head>
+<body>
+
+<div id="main-container">
+    <div id="game-area">
+        <div class="stats-display">
+            <div>步数: <span id="move-count">0</span></div>
+            <div>目标: <span id="min-move-count">7</span></div>
+        </div>
+        <div class="base"></div>
+        <div class="pillar-container" id="pillar-A"><div class="pillar"></div><div class="pillar-label">A</div></div>
+        <div class="pillar-container" id="pillar-B"><div class="pillar"></div><div class="pillar-label">B</div></div>
+        <div class="pillar-container" id="pillar-C"><div class="pillar"></div><div class="pillar-label">C</div></div>
+        <div id="disks-container"></div>
+    </div>
+
+    <div id="control-panel">
+        <h3 style="margin: 0; color: var(--primary-color);">汉诺塔递归教学</h3>
+        
+        <div class="mode-switch">
+            <div id="btn-mode-player" class="mode-btn active" onclick="setMode('player')">玩家挑战</div>
+            <div id="btn-mode-demo" class="mode-btn" onclick="setMode('demo')">递归演示</div>
+        </div>
+
+        <div class="control-group">
+            <div class="input-row">
+                <label>圆盘数量: <span id="disk-count-display">3</span></label>
+                <input type="range" id="disk-range" min="1" max="8" value="3" oninput="updateDiskCount(this.value)">
+            </div>
+            
+            <div id="player-controls">
+                <div class="btn-row">
+                    <button class="btn-green" id="btn-start-game" onclick="startGame()">开始游戏</button>
+                    <button class="btn-red" onclick="resetGame()">重置</button>
+                </div>
+
+                <div id="game-guide" class="guide-box">
+                    <h4>📜 玩法指引</h4>
+                    <ul>
+                        <li><b>任务目标</b>：将所有圆盘从柱子 <b>A</b> 移至柱子 <b>C</b>。</li>
+                        <li><b>移动规则</b>：每次只能移动任一柱子顶端的一个圆盘。</li>
+                        <li><b>堆叠限制</b>：大圆盘<b>绝对不能</b>放在小圆盘之上。</li>
+                        <li><b>通关提示</b>：圆盘越多，挑战越难！尝试用最少步数完成。</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div id="demo-controls" style="display: none;">
+                <div class="input-row">
+                    <label>速度:</label>
+                    <input type="range" id="speed-range" min="1" max="5" value="3" oninput="updateSpeed(this.value)">
+                </div>
+                <div class="btn-row">
+                    <button class="btn-green" id="btn-play" onclick="togglePlay()">播放演示</button>
+                    <button class="btn-green" style="background: #3498db" onclick="stepForward()">单步 >></button>
+                </div>
+            </div>
+        </div>
+
+        <div id="recursion-view" style="display: none; flex-direction: column; gap: 10px;">
+            <div id="status-text" class="status-box">准备就绪...</div>
+            <ul id="call-stack"></ul>
+            <div class="code-panel">Move(n, src, tgt, aux):
+  if n==1: MoveDisk1
+  else:
+    Move(n-1, src, aux, tgt)
+    Move(n)
+    Move(n-1, aux, tgt, src)</div>
+        </div>
+    </div>
+</div>
+
+<div id="victory-modal" class="modal-overlay">
+    <div class="modal-content">
+        <h2 style="color: #27ae60; margin-top:0">🎉 挑战成功!</h2>
+        <p>步数: <strong id="win-move-count" style="color:#e74c3c">0</strong></p>
+        <p id="performance-feedback" style="font-size: 0.85rem; color: #666;"></p>
+        <button class="btn-green" onclick="closeModalAndRestart()" style="width:100%">再试一次</button>
+    </div>
+</div>
+
+<script>
+    const state = {
+        disks: [],
+        towers: { A: [], B: [], C: [] },
+        diskCount: 3,
+        moveCount: 0,
+        mode: 'player',
+        isGameStarted: false,
+        isPlaying: false,
+        animationSpeed: 1000,
+        demoStepQueue: [],
+        currentStepIndex: 0,
+        recursionStack: [],
+        dragTarget: null,
+        dragOffset: { x: 0, y: 0 }
+    };
+
+    const elements = {
+        gameArea: document.getElementById('game-area'),
+        disksContainer: document.getElementById('disks-container'),
+        pillars: document.querySelectorAll('.pillar-container'),
+        moveCount: document.getElementById('move-count'),
+        minMoveCount: document.getElementById('min-move-count'),
+        statusText: document.getElementById('status-text'),
+        callStack: document.getElementById('call-stack'),
+        btnPlay: document.getElementById('btn-play'),
+        btnStartGame: document.getElementById('btn-start-game'),
+        victoryModal: document.getElementById('victory-modal'),
+        gameGuide: document.getElementById('game-guide')
+    };
+
+    function init() {
+        updateDiskCount(3);
+        window.addEventListener('resize', renderDisks);
+        
+        // 绑定鼠标事件
+        document.addEventListener('mousemove', handleDragMove);
+        document.addEventListener('mouseup', handleDragEnd);
+        // 绑定触摸事件
+        document.addEventListener('touchmove', (e) => handleDragMove(e.touches[0]), {passive: false});
+        document.addEventListener('touchend', (e) => handleDragEnd(e.changedTouches[0]));
+    }
+
+    function updateDiskCount(val) {
+        state.diskCount = parseInt(val);
+        document.getElementById('disk-count-display').innerText = val;
+        elements.minMoveCount.innerText = Math.pow(2, state.diskCount) - 1;
+        resetGame(state.mode === 'demo');
+    }
+
+    function setMode(mode) {
+        state.mode = mode;
+        document.getElementById('btn-mode-player').classList.toggle('active', mode === 'player');
+        document.getElementById('btn-mode-demo').classList.toggle('active', mode === 'demo');
+        
+        // 更新控制面板和规则指引的可见性
+        document.getElementById('player-controls').style.display = mode === 'player' ? 'block' : 'none';
+        elements.gameGuide.style.display = mode === 'player' ? 'block' : 'none';
+        
+        document.getElementById('demo-controls').style.display = mode === 'demo' ? 'block' : 'none';
+        document.getElementById('recursion-view').style.display = mode === 'demo' ? 'flex' : 'none';
+        resetGame(mode === 'demo');
+    }
+
+    function resetGame(prepareDemo = false) {
+        state.towers = { A: [], B: [], C: [] };
+        state.disks = [];
+        state.moveCount = 0;
+        state.isPlaying = false;
+        state.isGameStarted = false;
+        state.currentStepIndex = 0;
+        state.demoStepQueue = [];
+        state.recursionStack = [];
+        
+        elements.moveCount.innerText = "0";
+        elements.btnPlay.innerText = "播放演示";
+        elements.statusText.innerText = "准备就绪";
+        elements.callStack.innerHTML = "";
+        elements.disksContainer.innerHTML = "";
+        elements.btnStartGame.innerText = "开始游戏";
+        elements.btnStartGame.disabled = false;
+        elements.victoryModal.style.display = 'none';
+
+        for (let i = state.diskCount; i >= 1; i--) {
+            createDisk(i);
+            state.towers.A.push(i);
+        }
+        renderDisks();
+        if (prepareDemo) generateDemoSteps(state.diskCount, 'A', 'C', 'B');
+    }
+
+    function createDisk(sizeIndex) {
+        const diskEl = document.createElement('div');
+        diskEl.classList.add('disk');
+        diskEl.innerText = sizeIndex;
+        
+        const pillarWidth = elements.pillars[0].offsetWidth;
+        const width = (pillarWidth * 0.3) + (sizeIndex * (pillarWidth * 0.65 / state.diskCount));
+        
+        const hue = 200 + (sizeIndex * 15);
+        diskEl.style.width = `${width}px`;
+        diskEl.style.background = `linear-gradient(to right, hsl(${hue}, 70%, 50%), hsl(${hue}, 70%, 40%))`;
+        
+        const startAction = (e) => handleDragStart(e, sizeIndex);
+        diskEl.addEventListener('mousedown', startAction);
+        diskEl.addEventListener('touchstart', (e) => startAction(e.touches[0]), {passive: false});
+        
+        elements.disksContainer.appendChild(diskEl);
+        state.disks.push({ id: sizeIndex, element: diskEl, pillar: 'A' });
+    }
+
+    function renderDisks() {
+        const gameRect = elements.gameArea.getBoundingClientRect();
+        const pillarRects = Array.from(elements.pillars).map(p => p.getBoundingClientRect());
+
+        ['A', 'B', 'C'].forEach((pillarKey, pIndex) => {
+            const stack = state.towers[pillarKey];
+            const centerX = pillarRects[pIndex].left + pillarRects[pIndex].width / 2 - gameRect.left;
+
+            stack.forEach((diskSize, index) => {
+                const diskObj = state.disks.find(d => d.id === diskSize);
+                if (diskObj && !diskObj.element.classList.contains('dragging')) {
+                    const el = diskObj.element;
+                    el.style.bottom = `${65 + (index * 26)}px`;
+                    el.style.left = `${centerX - (el.offsetWidth / 2)}px`;
+                    el.style.filter = (state.mode === 'player' && !state.isGameStarted) ? 'grayscale(0.6)' : 'none';
+                }
+            });
+        });
+    }
+
+    function handleDragStart(e, diskSize) {
+        if (state.mode !== 'player' || !state.isGameStarted) return;
+        const currentPillar = state.disks.find(d => d.id === diskSize).pillar;
+        if (state.towers[currentPillar].slice(-1)[0] !== diskSize) return;
+
+        state.dragTarget = state.disks.find(d => d.id === diskSize);
+        const rect = state.dragTarget.element.getBoundingClientRect();
+        state.dragOffset.x = e.clientX - rect.left;
+        state.dragOffset.y = e.clientY - rect.top;
+        state.dragTarget.element.classList.add('dragging');
+    }
+
+    function handleDragMove(e) {
+        if (!state.dragTarget) return;
+        if(e.cancelable) e.preventDefault(); 
+        
+        const gameRect = elements.gameArea.getBoundingClientRect();
+        const el = state.dragTarget.element;
+        el.style.left = `${e.clientX - gameRect.left - state.dragOffset.x}px`;
+        el.style.bottom = `${gameRect.bottom - e.clientY + state.dragOffset.y - el.offsetHeight}px`;
+    }
+
+    function handleDragEnd(e) {
+        if (!state.dragTarget) return;
+        const targetDisk = state.dragTarget;
+        targetDisk.element.classList.remove('dragging');
+        state.dragTarget = null;
+
+        const dropX = e.clientX;
+        let nearestPillar = null;
+        let minDist = Infinity;
+
+        elements.pillars.forEach((p, index) => {
+            const rect = p.getBoundingClientRect();
+            const dist = Math.abs(dropX - (rect.left + rect.width / 2));
+            if (dist < 80 && dist < minDist) {
+                minDist = dist;
+                nearestPillar = ['A', 'B', 'C'][index];
+            }
+        });
+
+        if (nearestPillar) {
+            const from = targetDisk.pillar;
+            const to = nearestPillar;
+            const targetStack = state.towers[to];
+            const topDisk = targetStack.length > 0 ? targetStack[targetStack.length - 1] : Infinity;
+
+            if (from !== to && targetDisk.id < topDisk) {
+                state.towers[from].pop();
+                state.towers[to].push(targetDisk.id);
+                targetDisk.pillar = to;
+                state.moveCount++;
+                elements.moveCount.innerText = state.moveCount;
+                if (state.towers.C.length === state.diskCount) showWin();
+            }
+        }
+        renderDisks();
+    }
+
+    function startGame() {
+        resetGame();
+        state.isGameStarted = true;
+        elements.btnStartGame.innerText = "挑战中...";
+        elements.btnStartGame.disabled = true;
+        renderDisks();
+    }
+
+    function showWin() {
+        state.isGameStarted = false;
+        document.getElementById('win-move-count').innerText = state.moveCount;
+        const min = Math.pow(2, state.diskCount) - 1;
+        document.getElementById('performance-feedback').innerText = state.moveCount === min ? "完美！最少步数通关。" : `很棒！最少只需 ${min} 步。`;
+        elements.victoryModal.style.display = 'flex';
+    }
+
+    function closeModalAndRestart() {
+        elements.victoryModal.style.display = 'none';
+        resetGame();
+    }
+
+    // --- 演示逻辑 ---
+    function generateDemoSteps(n, src, tgt, aux) {
+        state.demoStepQueue.push({ type: 'call', n: n, src: src, tgt: tgt, desc: `分解：n=${n} 从 ${src} 移到 ${tgt}` });
+        if (n === 1) {
+            state.demoStepQueue.push({ type: 'move', disk: 1, from: src, to: tgt, desc: `基础情况：移动盘 1` });
+        } else {
+            generateDemoSteps(n - 1, src, aux, tgt);
+            state.demoStepQueue.push({ type: 'move', disk: n, from: src, to: tgt, desc: `移动大盘 ${n}` });
+            generateDemoSteps(n - 1, aux, tgt, src);
+        }
+        state.demoStepQueue.push({ type: 'return' });
+    }
+
+    async function executeStep() {
+        const step = state.demoStepQueue[state.currentStepIndex];
+        if (!step) return;
+
+        document.querySelectorAll('.highlight-subgroup, .highlight-move').forEach(el => el.classList.remove('highlight-subgroup', 'highlight-move'));
+
+        if (step.type === 'call') {
+            state.recursionStack.push(step);
+            elements.statusText.innerText = step.desc;
+            if (step.n > 1) state.disks.forEach(d => { if (d.id < step.n) d.element.classList.add('highlight-subgroup'); });
+        } else if (step.type === 'return') {
+            state.recursionStack.pop();
+            const parent = state.recursionStack.slice(-1)[0];
+            elements.statusText.innerText = parent ? `返回处理 n=${parent.n}` : "演示结束";
+        } else if (step.type === 'move') {
+            elements.statusText.innerText = step.desc;
+            const diskObj = state.disks.find(d => d.id === step.disk);
+            diskObj.element.classList.add('highlight-move');
+            state.towers[step.from].pop();
+            state.towers[step.to].push(step.disk);
+            diskObj.pillar = step.to;
+            state.moveCount++;
+            elements.moveCount.innerText = state.moveCount;
+            renderDisks();
+        }
+        updateStackUI();
+        state.currentStepIndex++;
+    }
+
+    function updateStackUI() {
+        elements.callStack.innerHTML = '';
+        [...state.recursionStack].reverse().forEach((frame, i) => {
+            const li = document.createElement('li');
+            li.className = 'stack-frame' + (i === 0 ? ' active' : '');
+            li.innerHTML = `<span>hanoi(${frame.n}, ${frame.src}→${frame.tgt})</span>`;
+            elements.callStack.appendChild(li);
+        });
+    }
+
+    async function togglePlay() {
+        if (state.currentStepIndex >= state.demoStepQueue.length) resetGame(true);
+        state.isPlaying = !state.isPlaying;
+        elements.btnPlay.innerText = state.isPlaying ? "暂停" : "继续演示";
+        while (state.isPlaying && state.currentStepIndex < state.demoStepQueue.length) {
+            await executeStep();
+            await new Promise(r => setTimeout(r, state.animationSpeed));
+        }
+        if (state.currentStepIndex >= state.demoStepQueue.length) {
+            state.isPlaying = false;
+            elements.btnPlay.innerText = "重新播放";
+        }
+    }
+
+    function stepForward() {
+        state.isPlaying = false;
+        elements.btnPlay.innerText = "继续演示";
+        executeStep();
+    }
+
+    function updateSpeed(val) {
+        state.animationSpeed = [1500, 1000, 600, 300, 100][val - 1];
+    }
+
+    init();
+</script>
+</body>
+</html>
